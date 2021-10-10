@@ -1,0 +1,61 @@
+---
+
+- name: Kubernetes Control Plane
+  hosts: k8s
+
+  tasks:
+
+    - name: Download calico pod network file
+      get_url:
+        url: https://docs.projectcalico.org/manifests/calico.yaml
+        dest: /tmp/calico.yaml
+        mode: '0644'
+
+    - name: uncomment Mask
+      replace:
+        path: /tmp/calico.yaml
+        regexp: '^#([^#])'
+        replace: '\1'
+
+    - name: set network range for pod network
+      replace:
+        path: /tmp/calico.yaml
+        regexp: '^#(value: 192.168.0.0)'
+        replace: '172.0.0.0 \1'
+
+    - name: Init k8s cluster kubeadm init --pod-network-cidr=172.168.10.0/24
+      command: kubeadm init --pod-network-cidr=192.168.0.0/16
+
+#      - name: Init k8s cluster
+#      command: kubeadm init --apiserver-advertise-address="192.168.50.10" --apiserver-cert-extra-sans="192.168.50.10"  --node-name k8s-master --pod-network-cidr=192.168.0.0/16
+
+
+    - name: k8s config 4 user
+      command: mkdir -p $HOME/.kube; sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config; sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+    - name: Install calico
+      command: kubectl create -f /tmp/calico.yaml
+
+    - name: Join comando for worker nodes
+      command: kubeadm token create --print-join-command
+      register: join
+
+
+    - name: paste join command to a ...testar cat >> 
+      local_action: copy content="{{ join_command.stdout_lines[0] }}" dest="/tmp/join-command"
+
+
+
+    - name: join command bash
+      copy:
+        dest: "/tmp/join-cluster.sh"
+        content: |
+                #/bin/bash
+                "{{ join_command.stdout_lines[0] }}" 
+
+#    - name: Disable SWAP in fstab
+#      replace:
+#        path: /etc/fstab
+#        regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+#        replace: '# \1'
+#      register: swap
