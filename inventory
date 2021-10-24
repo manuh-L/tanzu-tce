@@ -1,0 +1,9 @@
+[k8s]
+#192.168.10.132
+192.168.10.138
+
+[k8s:vars]
+ansible_user= 
+ansible_password=
+ansible_become_user=
+ansible_become_password=

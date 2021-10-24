@@ -1,0 +1,108 @@
+---
+
+- name: Pre-requirements for Tanzu (TCE)
+  hosts: k8s
+  vars:
+      tanzu_url: "https://github.com/vmware-tanzu/community-edition/releases/download/v0.9.1/tce-linux-amd64-v0.9.1.tar.gz"
+      tanzu_folder: "/tmp/tanzu"  
+  become: yes
+
+  tasks:
+
+    - name: Disable SELinux
+      ansible.posix.selinux:
+        state: disabled
+      register: selinux
+
+    - name: Disable SWAP
+      shell: swapoff -a
+
+    - name: Disable SWAP in fstab
+      replace:
+        path: /etc/fstab
+        regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+        replace: '# \1'
+      register: swap
+
+    - name: Add docker repository
+      yum_repository:
+        name: docker-ce-stable
+        description: Docker CE Stable - $basearch
+        file: docker_ce
+        baseurl: https://download.docker.com/linux/centos/$releasever/$basearch/stable
+        enabled: yes
+        gpgkey: https://download.docker.com/linux/centos/gpg
+        gpgcheck: yes
+
+
+    - name: Add k8s repository
+      yum_repository:
+        name: Kubernetes
+        description: k8s repo
+        file: kubernetes
+        baseurl: https://packages.cloud.google.com/yum/repos/kubernetes-el7-$basearch
+        enabled: yes
+        gpgkey: https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+        gpgcheck: yes
+
+    - name: Install the latest version of Docker & kubectl
+      dnf:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io 
+          - kubectl
+        state: latest
+        allowerasing: yes
+
+
+    - name: Rebooting {{ hostname }}
+      reboot:
+        test_command: uptime
+      when: selinux.changed or swap.changed
+
+    - name: Enable & start service docker
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: yes
+
+
+    - name: adding "{{ ansible_user }}" to group Docker
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+        state: present
+
+    - name: Setup Docker daemon
+      copy:
+        dest: "/etc/docker/daemon.json"
+        content: |
+          {
+            "exec-opts": ["native.cgroupdriver=systemd"],
+            "log-driver": "json-file",
+            "log-opts": {
+            "max-size": "100m"
+            },
+            "storage-driver": "overlay2"
+          }
+
+
+    - name: Reload the systemd config
+      ansible.builtin.systemd:
+        name: docker
+        daemon_reload: yes
+        state: reloaded
+
+
+    - name: Download TCE & Extract on "{{ tanzu_folder }}"
+      ansible.builtin.unarchive:
+        src: "{{ tanzu_url }}"
+        dest: "{{ tanzu_folder }}"
+        mode: '0774'
+        remote_src: yes
+
+    - name: Run Tanzu CLI installation script
+      shell: "{{ tanzu_folder }}/tce-linux-amd64-*/install.sh"
+      become: no
